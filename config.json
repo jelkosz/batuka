@@ -1,0 +1,42 @@
+{
+    "bugzilla": {
+        "url": "https://bugzilla.installation.url/jsonrpc.cgi",
+        "loadAllQuery": {"method": "Bug.search", "id": 1, "params": [{
+            "Bugzilla_login": "", 
+            "Bugzilla_password": "", 
+            "assigned_to": ["", ""],
+            "status": ["NEW", "ASSIGNED", "POST", "MODIFIED"]}]
+        },
+        "loadCommentsQuery": {"method": "Bug.comments", "id": 1, "params": [{
+            "Bugzilla_login": "", 
+            "Bugzilla_password": "",
+            "ids": []
+         }]
+       }
+    },
+
+    "kanbanik": {
+        "url": "http://localhost:8080/kanbanik/api",
+        "user": "",
+        "password": "",
+        "backlogWorkflowitemId":"",
+        "unknownWorkflowitemId": "",
+        "projectId": "",
+        "boardId": "",
+        "classOfServiceId": ""
+    },
+
+    "bz2kanbanikMappings": {
+        "status2workflowitem":  {
+            "NEW": "",
+            "ASSIGNED": "",
+            "POST": "",
+            "MODIFIED": ""
+        },
+        "user2kanbanikUser": {
+            "bzUserId": "kanbanikUserId",
+            "bzUserId": "kanbanikUserId"
+        }
+    }
+
+}
