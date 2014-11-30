@@ -13,7 +13,7 @@ def initialize():
     sessionId = execute_kanbanik_command({'commandName':'login','userName': config['kanbanik']['user'] ,'password': config['kanbanik']['password']})['sessionId']
 
 def load_config():
-    with open('/etc/batuka/config.json') as data_file:    
+    with open('/etc/batuka/config.json') as data_file:
         return json.load(data_file)
 
 def execute_kanbanik_command(json_data):
@@ -26,7 +26,12 @@ def execute_kanbanik_command(json_data):
 
     resp = requests.post(url, data='command='+json.dumps(json_data), headers=headers)
     if resp.status_code == OK_STATUS:
-        return resp.json
+        res = ''
+        try:
+            res = resp.json()
+        except TypeError:
+            res = resp.json
+        return res
 
     if resp.status_code == ERROR_STATUS or resp.status_code == USER_NOT_LOGGED_IN_STATUS:
         raise Exception('Error while calling server. Status code: '+ str(resp.status_code) + '. Resp: ' + resp.text)
@@ -42,7 +47,7 @@ def execute_bz_query(query):
     url = bz['url']
     headers = {'Content-Type': 'application/json', 'Accpet': 'application/json'}
     raw = requests.post(url, data=json.dumps(query), headers=headers)
-    return raw.json
+    return raw.json()
 
 
 # expects a function returning a list of all bugzilla tasks
@@ -50,7 +55,7 @@ def execute_bz_query(query):
 # ((BZ_ID, BZ_TIMESTAMP), THE_BZ)
 def bz_as_map(bz_loader = load_data_from_bz):
     return [((str(bz['id']), bz['last_change_time'], bz['target_release']), bz) for bz in bz_loader()['result']['bugs']]
-    
+
 # expects a function returning a list of all kanbanik tasks
 # returns a list of tasks imported from bugzilla (e.g. managed by this script) in a form of:
 # ((BZ_ID, BZ_TIMESTAMP, TICKET_ID), THE_WHOLE_TASK)
@@ -67,18 +72,19 @@ def parse_metadata_from_kanbanik(text):
 
 def bz_to_kanbanik(bz):
     res = {
-       'commandName': 'createTask', 
+       'commandName': 'createTask',
        'name': bz[1]['summary'],
        'description': u'$COMMENT' + bz[1]['comments'] + '$COMMENT$BZ;' + bz[0][0] + ';TIMESTAMP;'  + bz[0][1] + '$' + '$target-release' + ','.join(bz[0][2]) + '$',
-       'workflowitemId': workflowitem_id_from_bz(bz[1]['status']),
+       'workflowitemId': workflowitem_id_from_bz(bz[1]['status'], None),
        'version':1,
        'projectId': config['kanbanik']['projectId'],
        'boardId': config['kanbanik']['boardId'],
-       'classOfService': {'id': config['kanbanik']['classOfServiceId'], 'name': 'fake', 'description': 'fake', 'colour': 'fake', 'version': 1},
        'sessionId': sessionId,
+       'order': 0
     }
 
     add_assignee(res, bz[1])
+    add_class_of_service(res, bz[1])
 
     return res
 
@@ -92,15 +98,18 @@ def update_bz_to_kanbanik(kanbanik, bz):
     edit['sessionId'] = sessionId
 
     add_assignee(edit, bz[1])
+    add_class_of_service(edit, bz[1])
     res = [edit]
 
-    move = kanbanik[1].copy()
-    result_status = workflowitem_id_from_bz(bz[1]['status'])
+    move = edit.copy()
+    result_status = workflowitem_id_from_bz(bz[1]['status'], move['workflowitemId'])
 
     if move['workflowitemId'] != result_status:
         move['workflowitemId'] = result_status
         move['version'] = move['version'] + 1
+        move['description'] = ''
         add_assignee(move, bz[1])
+        add_class_of_service(move, bz[1])
         res.append({
             'commandName': 'moveTask',
             'task': move,
@@ -109,7 +118,23 @@ def update_bz_to_kanbanik(kanbanik, bz):
 
     return res
 
-def add_assignee(kanbanik, bz): 
+
+def add_class_of_service(kanbanik, bz):
+    class_of_service_mapping = config['bz2kanbanikMappings']['prioritySeverity2classOfServiceId']
+    priority = bz['priority']
+    severity = bz['severity']
+    specific = priority + '_' + severity
+    more_generic = priority + '_*'
+    res = class_of_service_mapping['*']
+    if specific in class_of_service_mapping:
+        res = class_of_service_mapping[specific]
+    elif more_generic in class_of_service_mapping:
+        res = class_of_service_mapping[more_generic]
+
+    kanbanik['classOfService'] = {'id': res, 'name': 'fake', 'description': 'fake', 'colour': 'fake', 'version': 1}
+
+
+def add_assignee(kanbanik, bz):
     user_mapping = config['bz2kanbanikMappings']['user2kanbanikUser']
     userName = user_mapping['unknown']
 
@@ -118,11 +143,16 @@ def add_assignee(kanbanik, bz):
 
     kanbanik['assignee'] = {'userName': userName, 'realName': 'fake', 'pictureUrl': 'fake', 'sessionId': 'fake', 'version': 1}
 
-def workflowitem_id_from_bz(bz_status):
+def workflowitem_id_from_bz(bz_status, current_workflowitem):
     status_mapping = config['bz2kanbanikMappings']['status2workflowitem']
+    prohibited_moves = config['bz2kanbanikMappings']['prohibitedTransitions']
     result_status = config['kanbanik']['backlogWorkflowitemId']
     if bz_status in status_mapping:
-        result_status = status_mapping[bz_status]
+        proposed_status = status_mapping[bz_status]
+        if current_workflowitem is not None and current_workflowitem in prohibited_moves and proposed_status in prohibited_moves[current_workflowitem]:
+            result_status = current_workflowitem
+        else:
+            result_status = proposed_status
 
     return result_status
 
@@ -145,7 +175,7 @@ def create_tasks_to_move_to_unknown(kanbanik_map, bz_map):
 def move_kanbanik_to_unknown(kanbanik):
     kanbanik[1]['workflowitemId'] = config['kanbanik']['unknownWorkflowitemId']
     kanbanik[1]['version'] = kanbanik[1]['version'] + 1
-    kanbanik[1]['description'] = sanitize_string(kanbanik[1]['description'])
+    kanbanik[1]['description'] = ''
     return {
         'commandName': 'moveTask',
         'task': kanbanik[1],
@@ -185,7 +215,7 @@ def create_tasks_to_modify(kanbanik_map, bz_map, kanbanik_task_from_bz_updater =
                bzs.append(bz)
 
     res = []
-    for bz in enrich_bzs(bzs): 
+    for bz in enrich_bzs(bzs):
         for kanbanik_task in kanbanik_map:
             if bz[0][0] == kanbanik_task[0][0] and (bz[0][1] != kanbanik_task[0][1] or ",".join(bz[0][2]) != kanbanik_task[0][2]):
                 res.append(kanbanik_task_from_bz_updater(kanbanik_task, bz))
