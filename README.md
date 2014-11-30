@@ -9,4 +9,4 @@ If you start batuka.py, it will poll bugzilla, than kanbanik, synchronizes all t
 
 In order to have this scrypt running periodically you can register it to cron.
 
-Batuka requires Kanbanik version 0.2.8. It is not yet released (but it is already quite stable and close to be released). In order to get it, please compile it from sources.
+Batuka requires Kanbanik version 0.2.8 or higher (or the 0.2.8-RC2).
