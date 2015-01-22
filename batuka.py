@@ -2,6 +2,7 @@ import requests
 import urllib
 import json
 import re
+import os.path
 
 sessionId = ''
 config = ''
@@ -40,7 +41,10 @@ def load_data_from_kanbanik():
     return execute_kanbanik_command({'commandName':'getTasks','includeDescription':True,'sessionId': sessionId})['values']
 
 def load_data_from_bz(config_loader = load_config):
-    return execute_bz_query(config['bugzilla']['loadAllQuery'])
+    data = execute_bz_query(config['bugzilla']['loadAllQuery'])
+    print(data)
+    raise Exception("terminate")
+    return data
 
 def execute_bz_query(query):
     bz = config['bugzilla']
@@ -84,7 +88,9 @@ def bz_to_kanbanik(bz):
     }
 
     add_assignee(res, bz[1])
+    add_tags(res, bz[1])
     add_class_of_service(res, bz[1])
+
 
     return res
 
@@ -94,10 +100,12 @@ def update_bz_to_kanbanik(kanbanik, bz):
     edit['description'] = replace_timestamp(edit, bz[0][1])
     edit['description'] = replace_target_release(edit, ','.join(bz[0][2]))
     edit['description'] = replace_comment(edit, bz[1]['comments'])
+    edit['description'] = sanitize_string(edit['description'])
     edit['commandName'] = 'editTask'
     edit['sessionId'] = sessionId
 
     add_assignee(edit, bz[1])
+    add_tags(edit, bz[1])
     add_class_of_service(edit, bz[1])
     res = [edit]
 
@@ -109,6 +117,7 @@ def update_bz_to_kanbanik(kanbanik, bz):
         move['version'] = move['version'] + 1
         move['description'] = ''
         add_assignee(move, bz[1])
+        add_tags(move, bz[1])
         add_class_of_service(move, bz[1])
         res.append({
             'commandName': 'moveTask',
@@ -132,6 +141,11 @@ def add_class_of_service(kanbanik, bz):
         res = class_of_service_mapping[more_generic]
 
     kanbanik['classOfService'] = {'id': res, 'name': 'fake', 'description': 'fake', 'colour': 'fake', 'version': 1}
+
+
+def add_tags(kanbanik, bz):
+    url = re.sub(r'/jsonrpc.cgi', '/show_bug.cgi?id=' + str(bz['id']), config['bugzilla']['url'])
+    kanbanik['taskTags'] = [{'name': 'B', 'description': 'BZ Link', 'onClickUrl': url, 'onClickTarget': 1, 'colour': 'green'}]
 
 
 def add_assignee(kanbanik, bz):
@@ -207,17 +221,17 @@ def sanitize_string(s):
     without_json_special_chars = re.sub(r'"', '\'', with_correct_enters)
     return urllib.quote_plus(without_json_special_chars)
 
-def create_tasks_to_modify(kanbanik_map, bz_map, kanbanik_task_from_bz_updater = update_bz_to_kanbanik):
+def create_tasks_to_modify(kanbanik_map, bz_map, force_update, kanbanik_task_from_bz_updater = update_bz_to_kanbanik):
     bzs = []
     for bz in bz_map:
         for kanbanik_task in kanbanik_map:
-            if bz[0][0] == kanbanik_task[0][0] and (bz[0][1] != kanbanik_task[0][1] or ",".join(bz[0][2]) != kanbanik_task[0][2]):
+            if bz[0][0] == kanbanik_task[0][0] and ((bz[0][1] != kanbanik_task[0][1] or ",".join(bz[0][2]) != kanbanik_task[0][2]) or force_update):
                bzs.append(bz)
 
     res = []
     for bz in enrich_bzs(bzs):
         for kanbanik_task in kanbanik_map:
-            if bz[0][0] == kanbanik_task[0][0] and (bz[0][1] != kanbanik_task[0][1] or ",".join(bz[0][2]) != kanbanik_task[0][2]):
+            if bz[0][0] == kanbanik_task[0][0] and ((bz[0][1] != kanbanik_task[0][1] or ",".join(bz[0][2]) != kanbanik_task[0][2]) or force_update):
                 res.append(kanbanik_task_from_bz_updater(kanbanik_task, bz))
 
     return res
@@ -231,7 +245,7 @@ def process():
         for task_to_add in create_tasks_to_add(kanbanik_map, bz_map):
             execute_kanbanik_command(task_to_add)
 
-        for tasks_to_modify in create_tasks_to_modify(kanbanik_map, bz_map):
+        for tasks_to_modify in create_tasks_to_modify(kanbanik_map, bz_map, False):
             for task_to_modify in tasks_to_modify:
                 execute_kanbanik_command(task_to_modify)
 
@@ -242,4 +256,13 @@ def process():
         execute_kanbanik_command({'commandName':'logout','sessionId': sessionId})
 
 if __name__ == "__main__":
-    process()
+    lock_file_path = '/tmp/batuka.lock'
+    if not os.path.isfile(lock_file_path):
+        open(lock_file_path, 'w+')
+    else:
+        raise Exception("The lock file already exists at " + lock_file_path + ' - if you are sure no other instance of batuka is running, please delete it and run batuka again.')
+
+    try:
+        process()
+    finally:
+        os.remove(lock_file_path)
