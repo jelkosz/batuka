@@ -3,6 +3,7 @@ import urllib
 import json
 import re
 import os.path
+import logging
 
 sessionId = ''
 config = ''
@@ -35,23 +36,28 @@ def execute_kanbanik_command(json_data):
         return res
 
     if resp.status_code == ERROR_STATUS or resp.status_code == USER_NOT_LOGGED_IN_STATUS:
-        raise Exception('Error while calling server. Status code: '+ str(resp.status_code) + '. Resp: ' + resp.text)
+        logging.error("error while calling kanbanik")
+        logging.error("response: " + str(resp.status_code))
+        logging.error("request: " + str(json_data))
+        return None
 
 def load_data_from_kanbanik():
     return execute_kanbanik_command({'commandName':'getTasks','includeDescription':True,'sessionId': sessionId})['values']
 
 def load_data_from_bz(config_loader = load_config):
-    data = execute_bz_query(config['bugzilla']['loadAllQuery'])
-    print(data)
-    raise Exception("terminate")
-    return data
+    return execute_bz_query(config['bugzilla']['loadAllQuery'])
 
 def execute_bz_query(query):
-    bz = config['bugzilla']
-    url = bz['url']
-    headers = {'Content-Type': 'application/json', 'Accpet': 'application/json'}
-    raw = requests.post(url, data=json.dumps(query), headers=headers)
-    return raw.json()
+    try:
+        bz = config['bugzilla']
+        url = bz['url']
+        headers = {'Content-Type': 'application/json', 'Accpet': 'application/json'}
+        raw = requests.post(url, data=json.dumps(query), headers=headers)
+        return raw.json()
+    except:
+        logging.error("error while calling bugzilla")
+        logging.error("request: " + str(query))
+        logging.error("response: " + str(raw))
 
 
 # expects a function returning a list of all bugzilla tasks
@@ -145,7 +151,14 @@ def add_class_of_service(kanbanik, bz):
 
 def add_tags(kanbanik, bz):
     url = re.sub(r'/jsonrpc.cgi', '/show_bug.cgi?id=' + str(bz['id']), config['bugzilla']['url'])
-    kanbanik['taskTags'] = [{'name': 'B', 'description': 'BZ Link', 'onClickUrl': url, 'onClickTarget': 1, 'colour': 'green'}]
+    bz_link = {'name': 'B', 'description': 'BZ Link', 'onClickUrl': url, 'onClickTarget': 1, 'colour': 'green'}
+    tags = [bz_link]
+    if 'target_release' in bz:
+        tr = bz['target_release']
+        tr_tag = {'name': 'TR: ' + ''.join(tr), 'description': 'Target Release', 'colour': 'green'}
+        tags = [bz_link, tr_tag]
+
+    kanbanik['taskTags'] = tags
 
 
 def add_assignee(kanbanik, bz):
@@ -245,7 +258,7 @@ def process():
         for task_to_add in create_tasks_to_add(kanbanik_map, bz_map):
             execute_kanbanik_command(task_to_add)
 
-        for tasks_to_modify in create_tasks_to_modify(kanbanik_map, bz_map, False):
+        for tasks_to_modify in create_tasks_to_modify(kanbanik_map, bz_map, True):
             for task_to_modify in tasks_to_modify:
                 execute_kanbanik_command(task_to_modify)
 
@@ -256,13 +269,20 @@ def process():
         execute_kanbanik_command({'commandName':'logout','sessionId': sessionId})
 
 if __name__ == "__main__":
+    logging.basicConfig(filename='/var/log/batuka.log',level=logging.DEBUG)
+    logging.info("batuka started")
+
     lock_file_path = '/tmp/batuka.lock'
     if not os.path.isfile(lock_file_path):
         open(lock_file_path, 'w+')
     else:
-        raise Exception("The lock file already exists at " + lock_file_path + ' - if you are sure no other instance of batuka is running, please delete it and run batuka again.')
+        msg = "The lock file already exists at " + lock_file_path + ' - if you are sure no other instance of batuka is running, please delete it and run batuka again.'
+        logging.error(msg)
+        raise Exception(msg)
 
     try:
+        logging.info("going to process")
         process()
+        logging.info("process ended successfully")
     finally:
         os.remove(lock_file_path)
