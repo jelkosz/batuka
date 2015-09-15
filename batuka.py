@@ -155,7 +155,7 @@ def add_tags(kanbanik, bz):
     tags = [bz_link]
     if 'target_release' in bz:
         tr = bz['target_release']
-        tr_tag = {'name': 'TR: ' + ''.join(tr), 'description': 'Target Release', 'colour': 'green'}
+        tr_tag = {'name': 'TR: ' + ','.join(tr), 'description': 'Target Release', 'colour': 'green'}
         tags = [bz_link, tr_tag]
 
     kanbanik['taskTags'] = tags
