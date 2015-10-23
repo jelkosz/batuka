@@ -156,7 +156,12 @@ def add_tags(kanbanik, bz):
     if 'target_release' in bz:
         tr = bz['target_release']
         tr_tag = {'name': 'TR: ' + ','.join(tr), 'description': 'Target Release', 'colour': 'green'}
-        tags = [bz_link, tr_tag]
+        tags.append(tr_tag)
+
+    if 'target_milestone' in bz:
+        tm = bz['target_milestone']
+        tm_tag = {'name': 'TM: ' + tm, 'description': 'Target Milestone', 'colour': 'green'}
+        tags.append(tm_tag)
 
     kanbanik['taskTags'] = tags
 
@@ -258,7 +263,7 @@ def process():
         for task_to_add in create_tasks_to_add(kanbanik_map, bz_map):
             execute_kanbanik_command(task_to_add)
 
-        for tasks_to_modify in create_tasks_to_modify(kanbanik_map, bz_map, True):
+        for tasks_to_modify in create_tasks_to_modify(kanbanik_map, bz_map, False):
             for task_to_modify in tasks_to_modify:
                 execute_kanbanik_command(task_to_modify)
 
