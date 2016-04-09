@@ -15,7 +15,7 @@ def initialize():
     sessionId = execute_kanbanik_command({'commandName':'login','userName': config['kanbanik']['user'] ,'password': config['kanbanik']['password']})['sessionId']
 
 def load_config():
-    with open('/etc/batuka/config.json') as data_file:
+    with open('/home/tjelinek/work/workspaces/kanbanik/integration/batuka/config2.json') as data_file:
         return json.load(data_file)
 
 def execute_kanbanik_command(json_data):
@@ -30,9 +30,9 @@ def execute_kanbanik_command(json_data):
     if resp.status_code == OK_STATUS:
         res = ''
         try:
-            res = resp.json()
+            return resp.json()
         except TypeError:
-            res = resp.json
+            return resp.json
         return res
 
     if resp.status_code == ERROR_STATUS or resp.status_code == USER_NOT_LOGGED_IN_STATUS:
@@ -80,6 +80,7 @@ def parse_metadata_from_kanbanik(text):
     else:
         return ('', '', '')
 
+
 def bz_to_kanbanik(bz):
     res = {
        'commandName': 'createTask',
@@ -96,7 +97,7 @@ def bz_to_kanbanik(bz):
     add_assignee(res, bz[1])
     add_tags(res, bz[1])
     add_class_of_service(res, bz[1])
-
+    add_due_date(res, bz[1])
 
     return res
 
@@ -134,6 +135,13 @@ def update_bz_to_kanbanik(kanbanik, bz):
     return res
 
 
+def add_due_date(res, bz):
+    due_date_mapping = config['bz2kanbanikMappings']['targetMilestone2dueDate']
+    if 'target_milestone' in bz:
+        tm = bz['target_milestone']
+        if tm in due_date_mapping:
+            res['dueDate'] = due_date_mapping[tm]
+
 def add_class_of_service(kanbanik, bz):
     class_of_service_mapping = config['bz2kanbanikMappings']['prioritySeverity2classOfServiceId']
     priority = bz['priority']
@@ -151,12 +159,12 @@ def add_class_of_service(kanbanik, bz):
 
 def add_tags(kanbanik, bz):
     url = re.sub(r'/jsonrpc.cgi', '/show_bug.cgi?id=' + str(bz['id']), config['bugzilla']['url'])
-    bz_link = {'name': 'B', 'description': 'BZ Link', 'onClickUrl': url, 'onClickTarget': 1, 'colour': 'green'}
+    bz_link = {'name': 'xbz:' + str(bz['id']), 'description': 'BZ Link', 'onClickUrl': url, 'onClickTarget': 1, 'colour': 'green'}
     tags = [bz_link]
-    if 'target_release' in bz:
-        tr = bz['target_release']
-        tr_tag = {'name': 'TR: ' + ','.join(tr), 'description': 'Target Release', 'colour': 'green'}
-        tags.append(tr_tag)
+    # if 'target_release' in bz:
+    #     tr = bz['target_release']
+    #     tr_tag = {'name': 'TR: ' + ','.join(tr), 'description': 'Target Release', 'colour': 'green'}
+    #     tags.append(tr_tag)
 
     if 'target_milestone' in bz:
         tm = bz['target_milestone']
@@ -279,7 +287,8 @@ if __name__ == "__main__":
 
     lock_file_path = '/tmp/batuka.lock'
     if not os.path.isfile(lock_file_path):
-        open(lock_file_path, 'w+')
+        pass
+        # open(lock_file_path, 'w+')
     else:
         msg = "The lock file already exists at " + lock_file_path + ' - if you are sure no other instance of batuka is running, please delete it and run batuka again.'
         logging.error(msg)
@@ -290,4 +299,5 @@ if __name__ == "__main__":
         process()
         logging.info("process ended successfully")
     finally:
-        os.remove(lock_file_path)
+        pass
+        # os.remove(lock_file_path)
