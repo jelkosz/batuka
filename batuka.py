@@ -114,6 +114,7 @@ def update_bz_to_kanbanik(kanbanik, bz):
     add_assignee(edit, bz[1])
     add_tags(edit, bz[1])
     add_class_of_service(edit, bz[1])
+    add_due_date(edit, bz[1])
     res = [edit]
 
     move = edit.copy()
@@ -126,6 +127,7 @@ def update_bz_to_kanbanik(kanbanik, bz):
         add_assignee(move, bz[1])
         add_tags(move, bz[1])
         add_class_of_service(move, bz[1])
+        add_due_date(move, bz[1])
         res.append({
             'commandName': 'moveTask',
             'task': move,
