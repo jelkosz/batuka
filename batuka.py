@@ -4,14 +4,23 @@ import json
 import re
 import os.path
 import logging
+import sys
+import getopt
 
 sessionId = ''
 config = ''
 
-def initialize():
+def initialize(bz_pass, kanbanik_pass):
     global sessionId
     global config
     config = load_config()
+    if kanbanik_pass is not None:
+        config['kanbanik']['password'] = kanbanik_pass
+
+    if bz_pass is not None:
+        config['bugzilla']['loadAllQuery']['params'][0]['Bugzilla_password'] = bz_pass
+        config['bugzilla']['loadCommentsQuery']['params'][0]['Bugzilla_password'] = bz_pass
+
     sessionId = execute_kanbanik_command({'commandName':'login','userName': config['kanbanik']['user'] ,'password': config['kanbanik']['password']})['sessionId']
 
 def load_config():
@@ -264,8 +273,9 @@ def create_tasks_to_modify(kanbanik_map, bz_map, force_update, kanbanik_task_fro
 
     return res
 
-def process():
-    initialize()
+
+def process(bz_pass, kanbanik_pass):
+    initialize(bz_pass, kanbanik_pass)
 
     try:
         kanbanik_map = kanbanik_as_map()
@@ -283,23 +293,42 @@ def process():
     finally:
         execute_kanbanik_command({'commandName':'logout','sessionId': sessionId})
 
-if __name__ == "__main__":
-    logging.basicConfig(filename='/var/log/batuka.log',level=logging.DEBUG)
-    logging.info("batuka started")
 
+def synchronize(bz_pass, kanbanik_pass):
+    global lock_file_path, msg
+    logging.basicConfig(filename='/var/log/batuka.log', level=logging.DEBUG)
+    logging.info("batuka started")
     lock_file_path = '/tmp/batuka.lock'
     if not os.path.isfile(lock_file_path):
-        pass
-        # open(lock_file_path, 'w+')
+        open(lock_file_path, 'w+')
     else:
-        msg = "The lock file already exists at " + lock_file_path + ' - if you are sure no other instance of batuka is running, please delete it and run batuka again.'
+        msg = "The lock file already exists at " + lock_file_path + ' - if you are sure no other instance of batuka is running, please deletedelete it and run batuka again.'
         logging.error(msg)
         raise Exception(msg)
-
     try:
         logging.info("going to process")
-        process()
+        process(bz_pass, kanbanik_pass)
         logging.info("process ended successfully")
     finally:
-        pass
-        # os.remove(lock_file_path)
+        os.remove(lock_file_path)
+
+
+if __name__ == "__main__":
+    kanbanik_pass = None
+    bz_pass = None
+
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "hk:b:", ["kanbanikpass=", "bzpass="])
+    except getopt.GetoptError:
+        print 'batuka.py -k <kanbanik password> -b <bugzilla password>'
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == '-h':
+            print 'batuka.py -k <kanbanik password> -b <bugzilla password>'
+            sys.exit()
+        elif opt in ("-k", "--kanbanikpass"):
+            kanbanik_pass = arg
+        elif opt in ("-b", "--bzpass"):
+            bz_pass = arg
+
+    synchronize(bz_pass, kanbanik_pass)
