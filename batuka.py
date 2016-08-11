@@ -96,8 +96,8 @@ def bz_to_kanbanik(bz):
        'name': bz[1]['summary'],
        'description': u'$COMMENT' + bz[1]['comments'] + '$COMMENT$BZ;' + bz[0][0] + ';TIMESTAMP;'  + bz[0][1] + '$' + '$target-release' + ','.join(bz[0][2]) + '$',
        'workflowitemId': workflowitem_id_from_bz(bz[1]['status'], None),
-       'version':1,
-       'projectId': config['kanbanik']['projectId'],
+       'version': 1,
+       'projectId': user_specific_mapping(bz[1])['projectId'],
        'boardId': config['kanbanik']['boardId'],
        'sessionId': sessionId,
        'order': 0
@@ -185,13 +185,15 @@ def add_tags(kanbanik, bz):
     kanbanik['taskTags'] = tags
 
 
-def add_assignee(kanbanik, bz):
-    user_mapping = config['bz2kanbanikMappings']['user2kanbanikUser']
-    userName = user_mapping['unknown']
-
+def user_specific_mapping(bz):
+    user_mapping = config['bz2kanbanikMappings']['userSpecificMappings']
     if bz['assigned_to'] in user_mapping:
-        userName = user_mapping[bz['assigned_to']]
+        return user_mapping[bz['assigned_to']]
 
+    return user_mapping['unknown']
+
+def add_assignee(kanbanik, bz):
+    userName = user_specific_mapping(bz)['kanbanikName']
     kanbanik['assignee'] = {'userName': userName, 'realName': 'fake', 'pictureUrl': 'fake', 'sessionId': 'fake', 'version': 1}
 
 def workflowitem_id_from_bz(bz_status, current_workflowitem):
@@ -283,7 +285,7 @@ def process(bz_pass, kanbanik_pass):
         for task_to_add in create_tasks_to_add(kanbanik_map, bz_map):
             execute_kanbanik_command(task_to_add)
 
-        for tasks_to_modify in create_tasks_to_modify(kanbanik_map, bz_map, False):
+        for tasks_to_modify in create_tasks_to_modify(kanbanik_map, bz_map, True):
             for task_to_modify in tasks_to_modify:
                 execute_kanbanik_command(task_to_modify)
 
