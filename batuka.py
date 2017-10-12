@@ -24,7 +24,7 @@ def initialize(bz_pass, kanbanik_pass):
     sessionId = execute_kanbanik_command({'commandName': 'login', 'userName': config['kanbanik']['user'], 'password': config['kanbanik']['password']})['sessionId']
 
 def load_config():
-    with open('/home/tjelinek/work/workspaces/kanbanik/integration/batuka/config2.json') as data_file:
+    with open('/etc/config.json') as data_file:
         return json.load(data_file)
 
 def execute_kanbanik_command(json_data):
@@ -99,7 +99,7 @@ def parse_metadata_from_kanbanik(text):
 def bz_to_kanbanik(bz):
     res = {
        'commandName': 'createTask',
-       'name': bz[1]['summary'],
+       'name': sanitize_string(bz[1]['summary']),
        # 'description': u'$COMMENT' + bz[1]['comments'] + '$COMMENT$BZ;' + bz[0][0] + ';TIMESTAMP;'  + bz[0][1] + '$' + '$target-release' + ','.join(bz[0][2]) + '$',
        'description': u'$COMMENT' + '$COMMENT$BZ;' + bz[0][0] + ';TIMESTAMP;'  + bz[0][1] + '$' + '$target-release' + ','.join(bz[0][2]) + '$',
        'workflowitemId': workflowitem_id_from_bz(bz[1]['status'], None),
@@ -121,7 +121,7 @@ def bz_to_kanbanik(bz):
 def update_bz_to_kanbanik(kanbanik, bz):
     edit = kanbanik[1].copy()
 
-    edit['name'] = bz[1]['summary']
+    edit['name'] = sanitize_string(bz[1]['summary'])
     edit['description'] = replace_timestamp(edit, bz[0][1])
     edit['description'] = replace_target_release(edit, ','.join(bz[0][2]))
     # edit['description'] = replace_comment(edit, bz[1]['comments'])
