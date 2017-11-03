@@ -182,11 +182,6 @@ def add_tags(kanbanik, bz):
     bz_link = {'name': 'xbz:' + str(bz['id']), 'description': 'BZ Link', 'onClickUrl': url, 'onClickTarget': 1, 'colour': 'green'}
     tags = [bz_link]
 
-    # if 'target_milestone' in bz:
-    #     tm = bz['target_milestone']
-    #     tm_tag = {'name': 'TM: ' + tm, 'description': 'Target Milestone', 'colour': 'green'}
-    #     tags.append(tm_tag)
-
     kanbanik['taskTags'] = tags
 
 
@@ -256,19 +251,6 @@ def move_kanbanik_to_unknown(kanbanik):
 def enrich_bzs(to_enrich):
     # ignore BZ comments
     return to_enrich
-    # if len(to_enrich) == 0:
-    #     return to_enrich
-    #
-    # bz_config = config['bugzilla']
-    # bz_config['loadCommentsQuery']['params'][0]['ids'] = [bz[1]['id'] for bz in to_enrich]
-    # all_comments = execute_bz_query(bz_config['loadCommentsQuery'])
-    #
-    # for bz in to_enrich:
-    #     if str(bz[1]['id']) in all_comments['result']['bugs']:
-    #         bz_comments = "".join([bz_comment_to_kanbanik_comment(comment) for comment in all_comments['result']['bugs'][str(bz[1]['id'])]['comments']])
-    #         bz[1]['comments'] = bz_comments
-    #
-    # return to_enrich
 
 
 def bz_comment_to_kanbanik_comment(bz_comment):
