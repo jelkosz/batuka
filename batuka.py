@@ -24,7 +24,7 @@ def initialize(bz_pass, kanbanik_pass):
     sessionId = execute_kanbanik_command({'commandName': 'login', 'userName': config['kanbanik']['user'], 'password': config['kanbanik']['password']})['sessionId']
 
 def load_config():
-    with open('/etc/config.json') as data_file:
+    with open('/etc/batuka.json') as data_file:
         return json.load(data_file)
 
 def execute_kanbanik_command(json_data):
