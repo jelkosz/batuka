@@ -7,6 +7,13 @@
             "assigned_to": ["assignee1@domain.com, assignee2@domain.com"],
             "status": ["NEW", "ASSIGNED", "POST", "MODIFIED"]}]
         },
+
+        "loadSpecificBugs": {"method": "Bug.get", "id": 1, "params": [{
+          "Bugzilla_login": "yourLogin",
+          "Bugzilla_password": "yourPass",
+          "ids": ""}]
+        },
+
         "loadCommentsQuery": {"method": "Bug.comments", "id": 1, "params": [{
 	    "Bugzilla_login": "yourLogin",
             "Bugzilla_password": "yourPass",

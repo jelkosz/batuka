@@ -20,6 +20,7 @@ def initialize(bz_pass, kanbanik_pass):
     if bz_pass is not None:
         config['bugzilla']['loadAllQuery']['params'][0]['Bugzilla_password'] = bz_pass
         config['bugzilla']['loadCommentsQuery']['params'][0]['Bugzilla_password'] = bz_pass
+        config['bugzilla']['loadSpecificBugs']['params'][0]['Bugzilla_password'] = bz_pass
 
     sessionId = execute_kanbanik_command({'commandName': 'login', 'userName': config['kanbanik']['user'], 'password': config['kanbanik']['password']})['sessionId']
 
@@ -37,12 +38,11 @@ def execute_kanbanik_command(json_data):
 
     resp = requests.post(url, data='command='+json.dumps(json_data), headers=headers)
     if resp.status_code == OK_STATUS:
-        res = ''
         try:
             return resp.json()
         except TypeError:
             return resp.json
-        return res
+        return ''
 
     if resp.status_code == ERROR_STATUS or resp.status_code == USER_NOT_LOGGED_IN_STATUS:
         logging.error("error while calling kanbanik")
@@ -50,11 +50,20 @@ def execute_kanbanik_command(json_data):
         logging.error("request: " + str(json_data))
         return None
 
+
 def load_data_from_kanbanik():
     return execute_kanbanik_command({'commandName':'getTasks','includeDescription':True,'sessionId': sessionId})['values']
 
-def load_data_from_bz(config_loader = load_config):
-    return execute_bz_query(config['bugzilla']['loadAllQuery'])
+
+def load_by_query_from_bz():
+    return execute_bz_query(config['bugzilla']['loadAllQuery'])['result']['bugs']
+
+
+def load_radar_from_bz(kanbanik_map):
+    bzs_to_load = [k[0][0] for k in kanbanik_map if k[0][3] == 'BZ_RADAR']
+    config['bugzilla']['loadSpecificBugs']['params'][0]['ids'] = bzs_to_load
+    return execute_bz_query(config['bugzilla']['loadSpecificBugs'])['result']['bugs']
+
 
 def execute_bz_query(query):
     try:
@@ -73,27 +82,46 @@ def execute_bz_query(query):
 # expects a function returning a list of all bugzilla tasks
 # returns the same list of tasks formatted as:
 # ((BZ_ID, BZ_TIMESTAMP), THE_BZ)
-def bz_as_map(bz_loader = load_data_from_bz):
+def bz_as_map(kanbanik_map):
     # the filter part is a terrible hack, will need to find a way how to do it on the layer of bugzilla query
-    return [((str(bz['id']), bz['last_change_time'], bz['target_release']), bz) for bz in bz_loader()['result']['bugs']
+    by_query = [((str(bz['id']), bz['last_change_time'], bz['target_release']), bz) for bz in load_by_query_from_bz()
             if 'RFEs' not in bz['component'] and 'FutureFeature' not in bz['keywords']
             ]
+    radar = [((str(bz['id']), bz['last_change_time'], bz['target_release']), bz) for bz in load_radar_from_bz(kanbanik_map)]
+    return by_query + radar
 
 # expects a function returning a list of all kanbanik tasks
 # returns a list of tasks imported from bugzilla (e.g. managed by this script) in a form of:
 # ((BZ_ID, BZ_TIMESTAMP, TICKET_ID), THE_WHOLE_TASK)
 def kanbanik_as_map(task_loader = load_data_from_kanbanik):
-    all_tasks = [(parse_metadata_from_kanbanik(task.get('description', '')), task) for task in task_loader()]
-    return filter(lambda x: x[0] != ('', '', ''), all_tasks)
+    all_tasks = [(parse_metadata_from_kanbanik(task), task) for task in task_loader()]
+    return filter(lambda x: x[0] != ('', '', '', ''), all_tasks)
 
+
+def has_tag(task, tag):
+    if task != None and task.get('taskTags') != None:
+        return any([1 for t in task.get('taskTags') if t['name'].startswith(tag)])
+
+    return False
+
+
+def match_metadata(task):
+    return re.match(r'.*\$BZ;(.*);TIMESTAMP;(.*)\$\$target-release(.*)\$.*', task.get('description', ''),
+                     re.S | re.I)
 
 # returns a tuple: (BZ_ID, TIMESTAMP_OF_LAST_CHANGE, TARGET_RELEASE)
-def parse_metadata_from_kanbanik(text):
-    matchObj = re.match( r'.*\$BZ;(.*);TIMESTAMP;(.*)\$\$target-release(.*)\$.*', text, re.S|re.I)
+def parse_metadata_from_kanbanik(task):
+    matchObj = match_metadata(task)
     if matchObj:
-        return (matchObj.group(1), matchObj.group(2), matchObj.group(3))
+        if has_tag(task, 'bzradar'):
+            return (matchObj.group(1), matchObj.group(2), matchObj.group(3), 'BZ_RADAR')
+
+        return (matchObj.group(1), matchObj.group(2), matchObj.group(3), 'LOADED_FROM_BZ')
+    elif has_tag(task, 'bzradar'):
+        bz_id = next(iter([tag['name'][4:] for tag in task.get('taskTags') if "xbz" in tag['name']]), '')
+        return (bz_id, '', '', 'BZ_RADAR')
     else:
-        return ('', '', '')
+        return ('', '', '', '')
 
 
 def bz_to_kanbanik(bz):
@@ -118,10 +146,17 @@ def bz_to_kanbanik(bz):
     return res
 
 
+def init_description(kanbanik, bz):
+    if not match_metadata(kanbanik):
+        kanbanik['description'] = u'$COMMENT' + '$COMMENT$BZ;' + bz[0] + ';TIMESTAMP;'  + bz[1] + '$' + '$target-release' + ','.join(bz[2]) + '$'
+
+
 def update_bz_to_kanbanik(kanbanik, bz):
     edit = kanbanik[1].copy()
 
     edit['name'] = sanitize_string(bz[1]['summary'])
+
+    init_description(edit, bz[0])
     edit['description'] = replace_timestamp(edit, bz[0][1])
     edit['description'] = replace_target_release(edit, ','.join(bz[0][2]))
     # edit['description'] = replace_comment(edit, bz[1]['comments'])
@@ -178,6 +213,9 @@ def add_class_of_service(kanbanik, bz):
 
 
 def add_tags(kanbanik, bz):
+    if has_tag(kanbanik, 'xbz'):
+        return
+
     url = re.sub(r'/jsonrpc.cgi', '/show_bug.cgi?id=' + str(bz['id']), config['bugzilla']['url'])
     bz_link = {'name': 'xbz:' + str(bz['id']), 'description': 'BZ Link', 'onClickUrl': url, 'onClickTarget': 1, 'colour': 'green'}
     tags = [bz_link]
@@ -282,7 +320,7 @@ def process(bz_pass, kanbanik_pass):
 
     try:
         kanbanik_map = kanbanik_as_map()
-        bz_map = bz_as_map()
+        bz_map = bz_as_map(kanbanik_map)
 
         for task_to_add in create_tasks_to_add(kanbanik_map, bz_map):
             execute_kanbanik_command(task_to_add)
@@ -300,7 +338,7 @@ def process(bz_pass, kanbanik_pass):
 
 def synchronize(bz_pass, kanbanik_pass):
     global lock_file_path, msg
-    logging.basicConfig(filename='/var/log/batuka.log', level=logging.DEBUG)
+    logging.basicConfig(filename='/tmp/batuka.log', level=logging.DEBUG)
     logging.info("batuka started")
     lock_file_path = '/tmp/batuka.lock'
     if not os.path.isfile(lock_file_path):
