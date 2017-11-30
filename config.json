@@ -22,6 +22,13 @@
 	}
     },
 
+
+    "github": {
+        "clientId": "your client id",
+        "secret": "your secret"
+    },
+
+
     "kanbanik": {
         "url": "http://kanbanikAddress:8080/kanbanik/api",
         "user": "kanbanikUser",

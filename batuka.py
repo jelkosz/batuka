@@ -10,6 +10,7 @@ import getopt
 sessionId = ''
 config = ''
 
+
 def initialize(bz_pass, kanbanik_pass):
     global sessionId
     global config
@@ -50,6 +51,17 @@ def execute_kanbanik_command(json_data):
         logging.error("request: " + str(json_data))
         return None
 
+def gh_to_common(gh):
+    if (gh == None):
+        return None
+    gh['summary'] = gh['title']
+    gh['assigned_to'] = ''
+    if gh['assignee'] != None:
+        gh['assigned_to'] = gh['assignee']['login']
+    gh['priority'] = ''
+    gh['severity'] = ''
+    gh['status'] = ''
+    return gh
 
 def load_data_from_kanbanik():
     return execute_kanbanik_command({'commandName':'getTasks','includeDescription':True,'sessionId': sessionId})['values']
@@ -64,6 +76,20 @@ def load_radar_from_bz(kanbanik_map):
     config['bugzilla']['loadSpecificBugs']['params'][0]['ids'] = bzs_to_load
     return execute_bz_query(config['bugzilla']['loadSpecificBugs'])['result']['bugs']
 
+
+def load_radar_from_gh(kanbanik_map):
+    return [r for r in [gh_to_common(execute_gh_query(k[0][0])) for k in kanbanik_map if k[0][3] == 'GH_RADAR'] if r != None]
+
+
+def execute_gh_query(link):
+    secret = "?client_id=" + config['github']['clientId'] + "&client_secret=" + config['github']['secret']
+    res = requests.get(link + secret)
+    if res.status_code == 200:
+        return res.json()
+    else:
+        logging.error("error while calling github")
+        logging.error("request: " + str(link))
+        logging.error("response: " + str(res))
 
 def execute_bz_query(query):
     try:
@@ -85,10 +111,15 @@ def execute_bz_query(query):
 def bz_as_map(kanbanik_map):
     # the filter part is a terrible hack, will need to find a way how to do it on the layer of bugzilla query
     by_query = [((str(bz['id']), bz['last_change_time'], bz['target_release']), bz) for bz in load_by_query_from_bz()
-            if 'RFEs' not in bz['component'] and 'FutureFeature' not in bz['keywords']
-            ]
+            if 'RFEs' not in bz['component'] and 'FutureFeature' not in bz['keywords']]
+
     radar = [((str(bz['id']), bz['last_change_time'], bz['target_release']), bz) for bz in load_radar_from_bz(kanbanik_map)]
-    return by_query + radar
+
+    ghs = load_radar_from_gh(kanbanik_map)
+
+    gh = [((str(gh['url']), gh['updated_at'], ''), gh) for gh in ghs]
+
+    return by_query + radar + gh
 
 # expects a function returning a list of all kanbanik tasks
 # returns a list of tasks imported from bugzilla (e.g. managed by this script) in a form of:
@@ -115,11 +146,16 @@ def parse_metadata_from_kanbanik(task):
     if matchObj:
         if has_tag(task, 'bzradar'):
             return (matchObj.group(1), matchObj.group(2), matchObj.group(3), 'BZ_RADAR')
+        elif has_tag(task, 'ghradar'):
+            return (matchObj.group(1), matchObj.group(2), matchObj.group(3), 'GH_RADAR')
 
         return (matchObj.group(1), matchObj.group(2), matchObj.group(3), 'LOADED_FROM_BZ')
     elif has_tag(task, 'bzradar'):
         bz_id = next(iter([tag['name'][4:] for tag in task.get('taskTags') if "xbz" in tag['name']]), '')
         return (bz_id, '', '', 'BZ_RADAR')
+    elif has_tag(task, 'ghradar'):
+        gh_link = next(iter([tag['description'] for tag in task.get('taskTags') if "xgh" in tag['name']]), '')
+        return (gh_link, '', '', 'GH_RADAR')
     else:
         return ('', '', '', '')
 
@@ -129,7 +165,7 @@ def bz_to_kanbanik(bz):
        'commandName': 'createTask',
        'name': sanitize_string(bz[1]['summary']),
        # 'description': u'$COMMENT' + bz[1]['comments'] + '$COMMENT$BZ;' + bz[0][0] + ';TIMESTAMP;'  + bz[0][1] + '$' + '$target-release' + ','.join(bz[0][2]) + '$',
-       'description': u'$COMMENT' + '$COMMENT$BZ;' + bz[0][0] + ';TIMESTAMP;'  + bz[0][1] + '$' + '$target-release' + ','.join(bz[0][2]) + '$',
+       'description': u'$COMMENT' + '$COMMENT$BZ;' + bz[0][0] + ';TIMESTAMP;' + bz[0][1] + '$' + '$target-release' + ','.join(bz[0][2]) + '$',
        'workflowitemId': workflowitem_id_from_bz(bz[1]['status'], None),
        'version': 1,
        'projectId': user_specific_mapping(bz[1])['projectId'],
@@ -213,7 +249,7 @@ def add_class_of_service(kanbanik, bz):
 
 
 def add_tags(kanbanik, bz):
-    if has_tag(kanbanik, 'xbz'):
+    if has_tag(kanbanik, 'xbz') or has_tag(kanbanik, 'xgh'):
         return
 
     url = re.sub(r'/jsonrpc.cgi', '/show_bug.cgi?id=' + str(bz['id']), config['bugzilla']['url'])
@@ -348,7 +384,6 @@ def synchronize(bz_pass, kanbanik_pass):
         logging.error(msg)
         raise Exception(msg)
     try:
-        logging.info("going to process")
         process(bz_pass, kanbanik_pass)
         logging.info("process ended successfully")
     finally:
